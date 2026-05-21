@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>reportPi · live dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg-card: #121831;
+    --bg-card-2: #1a2148;
+    --fg: #e6e8ef;
+    --fg-dim: #8b94b5;
+    --accent: #7aa2ff;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --grid: #2a3360;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 16px;
+    min-height: 100vh;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  h1 .sub {
+    color: var(--fg-dim);
+    font-weight: 400;
+    font-size: 13px;
+    margin-left: 8px;
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--fg-dim);
+    font-size: 13px;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 8px currentColor;
+  }
+  .dot.err { background: var(--err); }
+  .dot.warn { background: var(--warn); }
+
+  .alerts {
+    background: linear-gradient(90deg, rgba(248,113,113,0.15), rgba(248,113,113,0.05));
+    border: 1px solid rgba(248,113,113,0.35);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    color: var(--err);
+    font-size: 13px;
+  }
+  .alerts:empty { display: none; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--grid);
+    border-radius: 10px;
+    padding: 14px 16px;
+    position: relative;
+  }
+  .card .label {
+    color: var(--fg-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .card .value {
+    font-size: 28px;
+    font-weight: 600;
+    margin-top: 4px;
+    font-feature-settings: "tnum";
+  }
+  .card .unit {
+    color: var(--fg-dim);
+    font-size: 14px;
+    font-weight: 400;
+    margin-left: 4px;
+  }
+  .card .meta {
+    color: var(--fg-dim);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .card.warn { border-color: rgba(251,191,36,0.45); }
+  .card.warn .value { color: var(--warn); }
+  .card.err { border-color: rgba(248,113,113,0.45); }
+  .card.err .value { color: var(--err); }
+
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .chart-card {
+    background: var(--bg-card);
+    border: 1px solid var(--grid);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .chart-card h3 {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+  }
+  .chart-card .canvas-wrap {
+    position: relative;
+    height: 180px;
+  }
+
+  footer {
+    color: var(--fg-dim);
+    font-size: 12px;
+    text-align: center;
+    padding: 16px 0;
+    border-top: 1px solid var(--grid);
+    margin-top: 12px;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 600px) {
+    body { padding: 10px; }
+    .card .value { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>reportPi <span class="sub">Raspberry Pi 5 · Rust + Axum + SQLite</span></h1>
+  <div class="status">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">connecting…</span>
+  </div>
+</header>
+
+<div class="alerts" id="alerts"></div>
+
+<div class="grid" id="stat-cards">
+  <div class="card" id="card-cpu"><div class="label">CPU</div><div class="value">— <span class="unit">%</span></div><div class="meta">delta from last tick</div></div>
+  <div class="card" id="card-temp"><div class="label">CPU temp</div><div class="value">— <span class="unit">°C</span></div><div class="meta">/sys/class/thermal/thermal_zone0</div></div>
+  <div class="card" id="card-mem"><div class="label">Memory</div><div class="value">— <span class="unit">%</span></div><div class="meta">— / — MB</div></div>
+  <div class="card" id="card-disk"><div class="label">Disk</div><div class="value">— <span class="unit">%</span></div><div class="meta">— / — GB</div></div>
+  <div class="card" id="card-load"><div class="label">Load avg</div><div class="value">— <span class="unit">1m</span></div><div class="meta">5m: — · 15m: —</div></div>
+  <div class="card" id="card-proc"><div class="label">Processes</div><div class="value">—</div><div class="meta">running + total</div></div>
+  <div class="card" id="card-uptime"><div class="label">Uptime</div><div class="value">—</div><div class="meta">since boot</div></div>
+  <div class="card" id="card-net"><div class="label">Network total</div><div class="value">— <span class="unit">MB rx</span></div><div class="meta">— MB tx (cumulative)</div></div>
+</div>
+
+<div class="charts">
+  <div class="chart-card"><h3>CPU % (last 60 samples)</h3><div class="canvas-wrap"><canvas id="ch-cpu"></canvas></div></div>
+  <div class="chart-card"><h3>CPU temperature °C</h3><div class="canvas-wrap"><canvas id="ch-temp"></canvas></div></div>
+  <div class="chart-card"><h3>Memory used % </h3><div class="canvas-wrap"><canvas id="ch-mem"></canvas></div></div>
+  <div class="chart-card"><h3>Load average (1m / 5m / 15m)</h3><div class="canvas-wrap"><canvas id="ch-load"></canvas></div></div>
+</div>
+
+<footer>
+  Source: <a href="https://github.com/G1ilbert/Pi-report">G1ilbert/Pi-report</a> ·
+  Backend API: <code>monitorpi-api.oatori.com</code> ·
+  Poll 30s
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.js"></script>
+<script>
+'use strict';
+
+const API_BASE = 'https://monitorpi-api.oatori.com';
+const POLL_MS = 30_000;
+
+// ---------- helpers ----------
+const fmtBytes = (n) => {
+  if (n == null) return '—';
+  const units = ['B','KB','MB','GB','TB'];
+  let i = 0; let v = Math.abs(n);
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return v.toFixed(v >= 100 ? 0 : 1) + ' ' + units[i];
+};
+const fmtUptime = (s) => {
+  if (s == null) return '—';
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m ${s % 60}s`;
+};
+const fmtTs = (ts) => {
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString('en-GB', { hour12: false });
+};
+const setStatus = (ok, text) => {
+  const dot = document.getElementById('status-dot');
+  dot.className = 'dot' + (ok ? '' : ' err');
+  document.getElementById('status-text').textContent = text;
+};
+const setCard = (id, value, meta, level) => {
+  const el = document.getElementById(id);
+  el.querySelector('.value').innerHTML = value;
+  if (meta != null) el.querySelector('.meta').textContent = meta;
+  el.classList.remove('warn', 'err');
+  if (level) el.classList.add(level);
+};
+
+// ---------- charts ----------
+const chartOptsBase = (yLabel) => ({
+  type: 'line',
+  data: { labels: [], datasets: [] },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    interaction: { mode: 'nearest', intersect: false },
+    plugins: {
+      legend: { display: false, labels: { color: '#8b94b5' } },
+      tooltip: { backgroundColor: '#1a2148', borderColor: '#2a3360', borderWidth: 1 },
+    },
+    scales: {
+      x: { ticks: { color: '#8b94b5', maxTicksLimit: 6 }, grid: { color: '#2a3360' } },
+      y: {
+        ticks: { color: '#8b94b5', callback: yLabel },
+        grid: { color: '#2a3360' },
+        beginAtZero: true,
+      },
+    },
+  },
+});
+
+const charts = {
+  cpu: new Chart(document.getElementById('ch-cpu'), {
+    ...chartOptsBase((v) => v + '%'),
+    data: { labels: [], datasets: [{ data: [], borderColor: '#7aa2ff', backgroundColor: 'rgba(122,162,255,0.18)', fill: true, tension: 0.25, pointRadius: 0 }] },
+  }),
+  temp: new Chart(document.getElementById('ch-temp'), {
+    ...chartOptsBase((v) => v + '°C'),
+    data: { labels: [], datasets: [{ data: [], borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.18)', fill: true, tension: 0.25, pointRadius: 0 }] },
+  }),
+  mem: new Chart(document.getElementById('ch-mem'), {
+    ...chartOptsBase((v) => v + '%'),
+    data: { labels: [], datasets: [{ data: [], borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.18)', fill: true, tension: 0.25, pointRadius: 0 }] },
+  }),
+  load: new Chart(document.getElementById('ch-load'), {
+    ...chartOptsBase((v) => v.toFixed(2)),
+    data: { labels: [], datasets: [
+      { label: '1m', data: [], borderColor: '#7aa2ff', tension: 0.25, pointRadius: 0 },
+      { label: '5m', data: [], borderColor: '#fbbf24', tension: 0.25, pointRadius: 0 },
+      { label: '15m', data: [], borderColor: '#4ade80', tension: 0.25, pointRadius: 0 },
+    ] },
+  }),
+};
+charts.load.options.plugins.legend.display = true;
+
+const updateChart = (chart, rowsOldestFirst, ...keys) => {
+  chart.data.labels = rowsOldestFirst.map((r) => fmtTs(r.ts));
+  if (keys.length === 1) {
+    chart.data.datasets[0].data = rowsOldestFirst.map((r) => r[keys[0]]);
+  } else {
+    keys.forEach((k, i) => {
+      chart.data.datasets[i].data = rowsOldestFirst.map((r) => r[k]);
+    });
+  }
+  chart.update('none');
+};
+
+// ---------- poll ----------
+async function fetchJSON(path) {
+  const r = await fetch(API_BASE + path, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`${path} → HTTP ${r.status}`);
+  return r.json();
+}
+
+async function refresh() {
+  try {
+    const [stats, alerts, health] = await Promise.all([
+      fetchJSON('/stats'),
+      fetchJSON('/alerts'),
+      fetchJSON('/health'),
+    ]);
+
+    if (!stats.length) {
+      setStatus(false, 'no data yet');
+      return;
+    }
+
+    // /stats เรียง ts DESC, สำหรับ chart เราอยาก oldest→newest
+    const oldestFirst = [...stats].reverse();
+    const latest = stats[0];
+
+    // top-level status
+    const updated = new Date(latest.ts * 1000).toLocaleTimeString('en-GB', { hour12: false });
+    setStatus(true, `service uptime ${fmtUptime(health.uptime_s)} · last sample ${updated}`);
+
+    // alerts banner
+    const alertsEl = document.getElementById('alerts');
+    if (alerts.length) {
+      alertsEl.innerHTML = alerts.map(a =>
+        `⚠ <b>${a.kind}</b>: ${a.value.toFixed(1)} (threshold ${a.threshold})`
+      ).join(' &nbsp;·&nbsp; ');
+    } else {
+      alertsEl.textContent = '';
+    }
+
+    // stat cards
+    setCard('card-cpu',
+      latest.cpu_pct == null ? '— <span class="unit">%</span>' : `${latest.cpu_pct.toFixed(2)} <span class="unit">%</span>`,
+      'delta from last tick',
+      latest.cpu_pct != null && latest.cpu_pct > 80 ? 'err' : latest.cpu_pct > 50 ? 'warn' : null
+    );
+    setCard('card-temp',
+      latest.cpu_temp == null ? '— <span class="unit">°C</span>' : `${latest.cpu_temp.toFixed(1)} <span class="unit">°C</span>`,
+      '/sys/class/thermal/thermal_zone0',
+      latest.cpu_temp > 70 ? 'err' : latest.cpu_temp > 60 ? 'warn' : null
+    );
+    if (latest.mem_used != null && latest.mem_total) {
+      const pct = latest.mem_used / latest.mem_total * 100;
+      setCard('card-mem',
+        `${pct.toFixed(1)} <span class="unit">%</span>`,
+        `${fmtBytes(latest.mem_used)} / ${fmtBytes(latest.mem_total)}`,
+        pct > 90 ? 'err' : pct > 75 ? 'warn' : null
+      );
+    }
+    if (latest.disk_used != null && latest.disk_total) {
+      const pct = latest.disk_used / latest.disk_total * 100;
+      setCard('card-disk',
+        `${pct.toFixed(1)} <span class="unit">%</span>`,
+        `${fmtBytes(latest.disk_used)} / ${fmtBytes(latest.disk_total)}`,
+        pct > 90 ? 'err' : pct > 75 ? 'warn' : null
+      );
+    }
+    setCard('card-load',
+      latest.load_1 == null ? '—' : `${latest.load_1.toFixed(2)} <span class="unit">1m</span>`,
+      `5m: ${latest.load_5?.toFixed(2) ?? '—'} · 15m: ${latest.load_15?.toFixed(2) ?? '—'}`
+    );
+    setCard('card-proc', latest.proc_count ?? '—', 'total processes');
+    setCard('card-uptime', fmtUptime(latest.uptime_s), 'since kernel boot');
+    setCard('card-net',
+      latest.net_rx_bytes == null ? '— <span class="unit">MB rx</span>' : `${(latest.net_rx_bytes / 1024 / 1024).toFixed(1)} <span class="unit">MB rx</span>`,
+      latest.net_tx_bytes == null ? '— MB tx' : `${(latest.net_tx_bytes / 1024 / 1024).toFixed(1)} MB tx (cumulative)`
+    );
+
+    // charts (oldest→newest)
+    updateChart(charts.cpu,  oldestFirst, 'cpu_pct');
+    updateChart(charts.temp, oldestFirst, 'cpu_temp');
+    updateChart(charts.mem,  oldestFirst.map(r => ({ ts: r.ts, mem_pct: r.mem_used && r.mem_total ? r.mem_used / r.mem_total * 100 : null })), 'mem_pct');
+    updateChart(charts.load, oldestFirst, 'load_1', 'load_5', 'load_15');
+
+  } catch (e) {
+    console.error(e);
+    setStatus(false, `error: ${e.message}`);
+  }
+}
+
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+</body>
+</html>
