@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/gold/:path*",
+      "destination": "https://monitorpi-api.oatori.com/gold/:path*"
+    }
+  ]
+}
